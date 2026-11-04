@@ -136,7 +136,9 @@ async function loadSide(db, con, table, reg, bytes, headers, keyExprs, nKeys, no
   }
   const cols = uniqueNames(headers);
   await db.dropFile(reg).catch(() => {});
-  await db.registerFileBuffer(reg, bytes);
+  // Copie : registerFileBuffer transfère/détache l'ArrayBuffer, ce qui viderait
+  // les octets partagés (réouverture du même fichier, autres passes).
+  await db.registerFileBuffer(reg, bytes.slice());
   const proj = cols.map((c) => `COALESCE(${normalizers[c] ? normalizers[c](q(c)) : q(c)}, '') AS ${q(c)}`).join(", ");
   const allNull = cols.map((c) => `${q(c)} IS NULL`).join(" AND ");
   await con.query(
@@ -160,7 +162,7 @@ const diffMsg = (file, action, identifier, initial, nv) => {
   return m;
 };
 
-async function diffFile(db, con, file, bytesA, bytesB, normalizers) {
+export async function diffFile(db, con, file, bytesA, bytesB, normalizers) {
   const inA = !!bytesA, inB = !!bytesB;
   const headA = inA ? readHeader(bytesA) : [];
   const headB = inB ? readHeader(bytesB) : [];
@@ -254,6 +256,131 @@ export async function initDuckDB(assetDir) {
   const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(b.mainWorker));
   await db.instantiate(b.mainModule, b.pthreadWorker);
   return db;
+}
+
+// Ouvre un fichier : charge une fois, matérialise chaque catégorie en table DuckDB
+// (avec un numéro de ligne __n), expose compteurs et pagination à la demande.
+// Les relations SQL sont identiques à diffFile (validé) : la correction en découle.
+export async function openFile(db, aEntries, bEntries, file, profileName = "universal") {
+  const normalizers = PROFILES[profileName] || {};
+  const bytesA = aEntries.get(file) || null, bytesB = bEntries.get(file) || null;
+  const inA = !!bytesA, inB = !!bytesB;
+  const headA = inA ? readHeader(bytesA) : [];
+  const headB = inB ? readHeader(bytesB) : [];
+  const pk = primaryKey(file);
+  const safe = file.replace(/[^A-Za-z0-9]/g, "_");
+  const con = await db.connect();
+  await con.query("SET preserve_insertion_order=true");
+
+  let colsA = [], colsB = [];
+  const matTables = [];
+  if (inB) {
+    let keyExprs, nKeys;
+    if (pk) { keyExprs = (cols) => pk.map((k) => (cols.includes(k) ? q(k) : "''")); nKeys = pk.length; }
+    else { keyExprs = () => []; nKeys = 0; }
+    colsA = await loadSide(db, con, "ta", `a__${safe}.csv`, inA ? bytesA : null, headA, keyExprs, nKeys, normalizers);
+    colsB = await loadSide(db, con, "tb", `b__${safe}.csv`, bytesB, headB, keyExprs, nKeys, normalizers);
+    if (pk)
+      for (const s of ["ta", "tb"])
+        await exec(con, `CREATE TEMP TABLE ${s}_d AS SELECT * FROM ${s} QUALIFY row_number() OVER (PARTITION BY ${pk.map((_, i) => `__k${i}`).join(", ")} ORDER BY __rn DESC) = 1`);
+  }
+
+  const head = headMessages(file, inA, inB, headA, headB);
+  const validation = [...(inA ? validationMessages(file, headA, "a") : []), ...(inB ? validationMessages(file, headB, "b") : [])];
+
+  // Définition de chaque catégorie paginable : relation SQL, colonnes à ramener, assembleur JS.
+  const defs = {};
+  if (inB && pk) {
+    const kByIdx = pk.map((_, i) => `__k${i}`);
+    const kSel = (t) => pk.map((_, i) => `${t}.__k${i} AS "k${i}"`);
+    const joinOn = kByIdx.map((k) => `a.${k} = b.${k}`).join(" AND ");
+    const keyOrder = pk.map((_, i) => `"k${i}"`).join(", ");
+    const identFromKeys = (r) => Object.fromEntries(pk.map((k, i) => [k, r["k" + i]]));
+
+    defs.delete = {
+      select: kSel("a").join(", "),
+      from: `FROM ta_d a WHERE NOT EXISTS (SELECT 1 FROM tb_d b WHERE ${joinOn})`,
+      order: keyOrder,
+      make: (r) => diffMsg(file, "delete", identFromKeys(r)),
+    };
+    defs.add = {
+      select: [...kSel("b"), ...colsB.map((c, i) => `b.${q(c)} AS "v${i}"`)].join(", "),
+      from: `FROM tb_d b WHERE NOT EXISTS (SELECT 1 FROM ta_d a WHERE ${joinOn})`,
+      order: keyOrder,
+      make: (r) => diffMsg(file, "add", identFromKeys(r), undefined, Object.fromEntries(colsB.map((c, i) => [c, r["v" + i]]))),
+    };
+    if (colsB.length) {
+      const aExpr = (c) => (colsA.includes(c) ? `a.${q(c)}` : "''");
+      defs.update = {
+        select: [...kSel("a"), ...colsB.flatMap((c, i) => [`${aExpr(c)} AS "a${i}"`, `b.${q(c)} AS "b${i}"`])].join(", "),
+        from: `FROM ta_d a JOIN tb_d b ON ${joinOn} WHERE ${colsB.map((c) => `${aExpr(c)} <> b.${q(c)}`).join(" OR ")}`,
+        order: keyOrder,
+        make: (r) => {
+          const initial = {}, nv = {};
+          colsB.forEach((c, i) => { if (r["a" + i] !== r["b" + i]) { initial[c] = r["a" + i]; nv[c] = r["b" + i]; } });
+          return diffMsg(file, "update", identFromKeys(r), initial, nv);
+        },
+      };
+    }
+    for (const [action, feed, tbl] of [["duplicate_a", "a", "ta"], ["duplicate_b", "b", "tb"]])
+      defs[action] = {
+        select: pk.map((_, i) => `__k${i} AS "k${i}"`).join(", "),
+        from: `FROM ${tbl} GROUP BY ${kByIdx.join(", ")} HAVING COUNT(*) > 1`,
+        order: keyOrder,
+        make: (r) => ({ category: "validation", file, action: "duplicate_key", target: "row", feed, identifier: identFromKeys(r), note: DUPLICATE_NOTE }),
+      };
+  } else if (inB && !pk) {
+    const sameCols = colsA.length > 0 && colsA.length === colsB.length && colsA.every((c) => colsB.includes(c));
+    const sortedA = [...colsA].sort(), sortedB = [...colsB].sort();
+    const distinct = (side, other, cols) => {
+      const sel = cols.map((c) => q(c)).join(", ");
+      return `(SELECT DISTINCT ${sel} FROM ${side}${other ? ` EXCEPT SELECT ${sel} FROM ${other}` : ""})`;
+    };
+    const rowObj = (cols) => (r) => Object.fromEntries(cols.map((c, i) => [c, r["d" + i]]));
+    if (colsA.length)
+      defs.delete = {
+        select: sortedA.map((c, i) => `${q(c)} AS "d${i}"`).join(", "),
+        from: `FROM ${distinct("ta", sameCols ? "tb" : null, sortedA)}`,
+        order: sortedA.map((_, i) => `"d${i}"`).join(", "),
+        make: (r) => diffMsg(file, "delete", rowObj(sortedA)(r)),
+      };
+    if (colsB.length)
+      defs.add = {
+        select: sortedB.map((c, i) => `${q(c)} AS "d${i}"`).join(", "),
+        from: `FROM ${distinct("tb", sameCols ? "ta" : null, sortedB)}`,
+        order: sortedB.map((_, i) => `"d${i}"`).join(", "),
+        make: (r) => { const o = rowObj(sortedB)(r); return diffMsg(file, "add", o, undefined, o); },
+      };
+  }
+
+  // Matérialise chaque catégorie (table m_<action> + __n) et récupère les compteurs.
+  const counts = { delete: 0, add: 0, update: 0, duplicate_a: 0, duplicate_b: 0 };
+  for (const [action, d] of Object.entries(defs)) {
+    const t = `m_${action}`;
+    await exec(con, `CREATE TEMP TABLE ${t} AS SELECT ${d.select}, row_number() OVER (ORDER BY ${d.order}) AS __n ${d.from}`);
+    matTables.push(t);
+    counts[action] = Number((await rows(con, `SELECT COUNT(*) AS n FROM ${t}`))[0].n);
+  }
+  // compteurs issus des messages JS (structure + validation colonnes/fichier)
+  counts.file = head.filter((m) => m.target === "file").length;
+  counts.columns_added = head.filter((m) => m.target === "column" && m.action === "add").length;
+  counts.columns_removed = head.filter((m) => m.target === "column" && m.action === "delete").length;
+  counts.validation_cols = validation.length;
+
+  return {
+    file, inA, inB, pk, colsA, colsB, head, validation, counts,
+    // page d'une catégorie ligne à ligne
+    async page(action, offset = 0, limit = 50) {
+      const d = defs[action];
+      if (!d) return [];
+      const rs = await rows(con, `SELECT * FROM m_${action} WHERE __n > ${offset} AND __n <= ${offset + limit} ORDER BY __n`);
+      return rs.map(d.make);
+    },
+    async close() {
+      for (const t of [...matTables, "ta", "tb", "ta_d", "tb_d"]) await exec(con, `DROP TABLE IF EXISTS ${t}`);
+      await con.close();
+    },
+  };
 }
 
 // aEntries / bEntries : Map<nomFichier, Uint8Array>. Renvoie les messages par fichier.
