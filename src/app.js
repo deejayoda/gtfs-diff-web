@@ -2,6 +2,7 @@
 import JSZip from "jszip";
 import { initDuckDB, openFile } from "./engine.js";
 import { buildOverview } from "./overview.js";
+import { getMeta } from "./gtfs_meta.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, kids = []) => {
@@ -137,9 +138,29 @@ async function openDetail(file) {
 
 function renderDetail(root, h) {
   const c = h.counts;
-  const info = el("div", { className: "muted", style: "margin:.2rem 0 .6rem" });
-  info.textContent = `Clé : ${h.pk ? h.pk.join(" + ") : "ligne entière (pas de clé GTFS)"} · `
-    + `${h.colsA.length} colonnes A / ${h.colsB.length} colonnes B`;
+  const meta = getMeta(h.file);
+
+  // panneau métadonnées GTFS
+  const info = el("div", { className: "card", style: "margin:.2rem 0 .8rem" });
+  info.append(el("div", { style: "font-weight:600;margin-bottom:.2rem" }, meta.label));
+  info.append(el("div", { className: "muted", textContent: meta.description }));
+  info.append(el("div", { className: "muted", style: "margin-top:.35rem" },
+    [el("b", { textContent: "Clé : " }), meta.key,
+     "  ·  " + h.colsA.length + " colonnes A / " + h.colsB.length + " colonnes B"]));
+  if (meta.sensitive && meta.sensitive.length)
+    info.append(el("div", { className: "muted", style: "margin-top:.2rem" },
+      [el("b", { textContent: "Champs sensibles : " }), meta.sensitive.join(", ")]));
+  if (h.keyDiff) {
+    const k = h.keyDiff;
+    const parts = [el("b", { textContent: "Identifiants (" + k.key + ") : " }),
+      `${k.common.toLocaleString("fr")} communs · ${k.added.toLocaleString("fr")} ajoutés (B) · ${k.removed.toLocaleString("fr")} supprimés (A)`];
+    if (k.a_collisions || k.b_collisions)
+      parts.push(el("span", { className: "delta-pos", style: "margin-left:.4rem",
+        textContent: `· collisions A : ${k.a_collisions} / B : ${k.b_collisions} (IDs fusionnés par la normalisation)` }));
+    info.append(el("div", { className: "muted", style: "margin-top:.2rem" }, parts));
+  }
+  info.append(el("div", { style: "margin-top:.4rem" },
+    [el("span", { textContent: "💡 " }), el("span", { className: "muted", textContent: meta.interpretation })]));
   root.append(info);
 
   const exp = el("button", { className: "sec", textContent: "Exporter ce fichier (CSV)" });

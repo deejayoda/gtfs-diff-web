@@ -51,6 +51,13 @@ window.gtfs = {
     const byFile = await diffAll(await db(), await entries(aUrl), await entries(bUrl), profile);
     return Object.values(byFile).flat();
   },
+  // key_diff d'un fichier (validation contre compute.key_diffs)
+  async kd(aUrl, bUrl, file, profile = "universal") {
+    const d = await db(), aE = await entries(aUrl), bE = await entries(bUrl);
+    const h = await openFile(d, aE, bE, file, profile);
+    const kd = h.keyDiff; await h.close();
+    return kd;
+  },
   // vérif croisée openFile vs diffFile pour un seul fichier
   async openCheck(aUrl, bUrl, file, profile = "universal") {
     const d = await db(), aE = await entries(aUrl), bE = await entries(bUrl);

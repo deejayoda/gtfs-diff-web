@@ -56,6 +56,12 @@ export const PROFILES = {
   zou_scolaire: { route_id: sqlNormId, stop_id: sqlNormStopId, trip_id: sqlNormId, service_id: sqlNormId },
 };
 
+// Tables à clé métier simple (key_diff / collisions), comme compute.KEY_TABLES.
+const KEY_META = {
+  "agency.txt": "agency_id", "routes.txt": "route_id", "trips.txt": "trip_id",
+  "stops.txt": "stop_id", "calendar.txt": "service_id", "companies.txt": "company_id",
+};
+
 function uniqueNames(headers) {
   const seen = new Map(); const out = [];
   headers.forEach((h, i) => {
@@ -296,6 +302,28 @@ export async function openFile(db, aEntries, bEntries, file, profileName = "univ
   const head = headMessages(file, inA, inB, headA, headB);
   const validation = [...(inA ? validationMessages(file, headA, "a") : []), ...(inB ? validationMessages(file, headB, "b") : [])];
 
+  // key_diff : diff par identifiant métier (porté de compute._build_key_diffs),
+  // avec collisions = IDs normalisés regroupant plusieurs IDs bruts (fusion par le profil).
+  let keyDiff = null;
+  const kc = KEY_META[file];
+  if (kc && inA && inB && colsA.includes(kc) && colsB.includes(kc)) {
+    const normExpr = normalizers[kc] ? normalizers[kc](q(kc)) : q(kc);
+    const readA = readCsvSQL(`a__${safe}.csv`, colsA), readB = readCsvSQL(`b__${safe}.csv`, colsB);
+    const one = async (sql) => Number((await rows(con, sql))[0].n);
+    await exec(con, `CREATE TEMP TABLE ka AS SELECT DISTINCT ${normExpr} AS k FROM ${readA}`);
+    await exec(con, `CREATE TEMP TABLE kb AS SELECT DISTINCT ${normExpr} AS k FROM ${readB}`);
+    const removed = await one(`SELECT COUNT(*) AS n FROM (SELECT k FROM ka EXCEPT SELECT k FROM kb)`);
+    const added = await one(`SELECT COUNT(*) AS n FROM (SELECT k FROM kb EXCEPT SELECT k FROM ka)`);
+    const common = await one(`SELECT COUNT(*) AS n FROM (SELECT k FROM ka INTERSECT SELECT k FROM kb)`);
+    let a_collisions = 0, b_collisions = 0;
+    if (normalizers[kc]) {
+      a_collisions = await one(`SELECT COUNT(*) AS n FROM (SELECT ${normExpr} AS k FROM ${readA} GROUP BY 1 HAVING COUNT(DISTINCT ${q(kc)}) > 1)`);
+      b_collisions = await one(`SELECT COUNT(*) AS n FROM (SELECT ${normExpr} AS k FROM ${readB} GROUP BY 1 HAVING COUNT(DISTINCT ${q(kc)}) > 1)`);
+    }
+    await exec(con, "DROP TABLE IF EXISTS ka"); await exec(con, "DROP TABLE IF EXISTS kb");
+    keyDiff = { key: kc, added, removed, common, a_collisions, b_collisions };
+  }
+
   // Définition de chaque catégorie paginable : relation SQL, colonnes à ramener, assembleur JS.
   const defs = {};
   if (inB && pk) {
@@ -376,7 +404,7 @@ export async function openFile(db, aEntries, bEntries, file, profileName = "univ
   counts.validation_cols = validation.length;
 
   return {
-    file, inA, inB, pk, colsA, colsB, head, validation, counts,
+    file, inA, inB, pk, colsA, colsB, head, validation, counts, keyDiff,
     // page d'une catégorie ligne à ligne
     async page(action, offset = 0, limit = 50) {
       const d = defs[action];
@@ -386,6 +414,7 @@ export async function openFile(db, aEntries, bEntries, file, profileName = "univ
     },
     async close() {
       for (const t of [...matTables, "ta", "tb", "ta_d", "tb_d"]) await exec(con, `DROP TABLE IF EXISTS ${t}`);
+      for (const r of [`a__${safe}.csv`, `b__${safe}.csv`]) await db.dropFile(r).catch(() => {});
       await con.close();
     },
   };
