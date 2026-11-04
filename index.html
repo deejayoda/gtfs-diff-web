@@ -76,9 +76,11 @@
   .chip{background:#eef2f7;color:#46535f;border-radius:999px;padding:.1rem .55rem;font-size:.8rem;font-weight:600;margin-left:.4rem}
   .kv{margin-top:.4rem} .kv b{font-weight:700}
   .interp{margin-top:.7rem;background:#fff8ec;border-left:4px solid var(--nota-dot);border-radius:6px;padding:.6rem .9rem}
-  .tabs{display:flex;gap:0;border-bottom:1px solid var(--line);margin:1rem 0 0}
-  .tab{flex:1;text-align:center;padding:.7rem;cursor:pointer;color:var(--muted);font-weight:600;border-bottom:3px solid transparent}
-  .tab.active{color:var(--fg);border-color:var(--purple)}
+  .tabs{display:flex;gap:8px;border-bottom:2px solid var(--line);margin:1.2rem 0 0}
+  .tab{flex:1;text-align:center;padding:.8rem 1rem;cursor:pointer;color:var(--muted);font-weight:700;font-size:1rem;
+       background:#eef1f5;border:1px solid var(--line);border-bottom:none;border-radius:11px 11px 0 0;margin-bottom:-2px;transition:background .12s}
+  .tab:hover{background:#e5eaf1;color:var(--fg)}
+  .tab.active{color:var(--purple);background:#fff;border-color:var(--line);border-bottom:3px solid var(--purple)}
   .toolbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin:.9rem 0}
   .toolbar .fld{flex:1;min-width:150px} .toolbar .fld.sm{flex:0 0 auto}
   .filterbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#f6f8fb;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:.6rem 0}
