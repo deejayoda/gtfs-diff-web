@@ -247,6 +247,14 @@ export async function diffFile(db, con, file, bytesA, bytesB, normalizers) {
 }
 
 export async function initDuckDB(assetDir) {
+  // Mode autonome (double-clic, file://) : bundle embarqué via globalThis.__GTFS_BUNDLE__
+  // { mainModule: <data: URL wasm>, mainWorker: <blob: URL worker> }.
+  const custom = globalThis.__GTFS_BUNDLE__;
+  if (custom) {
+    const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(custom.mainWorker));
+    await db.instantiate(custom.mainModule);
+    return db;
+  }
   const D = new URL(assetDir || "./assets/duckdb/", location.href).href;
   const bundles = {
     mvp: { mainModule: D + "duckdb-mvp.wasm", mainWorker: D + "duckdb-browser-mvp.worker.js" },

@@ -1,5 +1,6 @@
-node_modules/
-dist/
-assets/duckdb/
 *.log
+assets/duckdb/
+dist-standalone/
+dist/
 fixtures/
+node_modules/

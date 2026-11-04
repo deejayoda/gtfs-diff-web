@@ -1,12 +1,13 @@
 {
   "name": "gtfs-diff-web",
   "version": "0.1.0",
-  "description": "Comparaison de flux GTFS, entièrement dans le navigateur (preuve de concept)",
+  "description": "Comparaison de flux GTFS, entièrement dans le navigateur (hors ligne)",
   "main": "index.js",
   "scripts": {
     "build": "node build.mjs",
     "serve": "node server.mjs",
-    "start": "node build.mjs && node server.mjs"
+    "start": "node build.mjs && node server.mjs",
+    "standalone": "node build.mjs && node build-standalone.mjs"
   },
   "keywords": [],
   "author": "",
