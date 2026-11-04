@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import { initDuckDB, openFile } from "./engine.js";
 import { buildOverview } from "./overview.js";
 import { getMeta } from "./gtfs_meta.js";
+import { computeDrift } from "./drift.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, kids = []) => {
@@ -109,6 +110,113 @@ function renderOverview(ov) {
     body.append(tr);
   }
   tbl.append(body); root.append(tbl);
+
+  // ---------- analyses de dérive (à la demande) ----------
+  root.append(el("h2", { textContent: "Analyses de dérive détaillées" }));
+  const driftBox = el("div");
+  const btn = el("button", { className: "sec", textContent: "Calculer les analyses (charge tous les fichiers)" });
+  const st = el("span", { className: "muted", style: "margin-left:.6rem" });
+  btn.addEventListener("click", async () => {
+    btn.disabled = true; st.textContent = "Calcul en cours… (peut prendre quelques secondes sur de gros flux)";
+    try {
+      if (!db) db = await initDuckDB();
+      const d = await computeDrift(db, entriesA, entriesB, $("profile").value);
+      st.textContent = ""; renderDrift(driftBox, d);
+    } catch (e) { st.textContent = "❌ " + (e && e.message ? e.message : e); btn.disabled = false; }
+  });
+  root.append(el("div", { style: "margin:.4rem 0" }, [btn, st]), driftBox);
+}
+
+// ---------- analyses de dérive ----------
+const num = (v) => (v == null ? "—" : Number(v).toLocaleString("fr"));
+const dec = (v) => (v == null ? "—" : Number(v).toLocaleString("fr", { maximumFractionDigits: 1 }));
+
+function statTable(title, headers, rows) {
+  const box = el("div", { style: "margin:.6rem 0" });
+  box.append(el("div", { style: "font-weight:600;margin-bottom:.2rem" }, title));
+  const t = el("table");
+  t.append(el("thead", {}, el("tr", {}, headers.map((h) => el("th", { textContent: h })))));
+  const b = el("tbody");
+  for (const r of rows) b.append(el("tr", {}, r.map((c, i) =>
+    el("td", { className: i === 0 ? "mono" : "num", textContent: String(c) }))));
+  t.append(b); box.append(t); return box;
+}
+
+function deltaTable(title, rows, cols) {
+  const box = el("div", { style: "margin:.8rem 0" });
+  box.append(el("div", { style: "font-weight:600;margin-bottom:.2rem" },
+    `${title} — ${rows.length.toLocaleString("fr")} ligne(s) impactée(s)`));
+  if (!rows.length) { box.append(el("div", { className: "muted", textContent: "Aucun écart." })); return box; }
+  const wrap = el("div", { style: "max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:6px" });
+  const t = el("table");
+  t.append(el("thead", {}, el("tr", {}, ["route_id", cols[0], cols[1], "Δ"].map((h) => el("th", { textContent: h })))));
+  const b = el("tbody");
+  for (const r of rows.slice(0, 500)) {
+    const d = r.delta;
+    b.append(el("tr", {}, [
+      el("td", { className: "mono", textContent: r.route_id ?? "(vide)" }),
+      el("td", { className: "num", textContent: num(r[cols[0]]) }),
+      el("td", { className: "num", textContent: num(r[cols[1]]) }),
+      el("td", { className: "num " + (d >= 0 ? "delta-pos" : "delta-neg"), textContent: (d > 0 ? "+" : "") + num(d) }),
+    ]));
+  }
+  t.append(b); wrap.append(t); box.append(wrap);
+  if (rows.length > 500) box.append(el("div", { className: "muted", textContent: `(500 premières sur ${rows.length.toLocaleString("fr")})` }));
+  return box;
+}
+
+function missingList(title, ids) {
+  const box = el("div", { style: "margin:.8rem 0" });
+  box.append(el("div", { style: "font-weight:600;margin-bottom:.2rem" },
+    `${title} — ${ids.length}${ids.length === 200 ? "+ (plafonné à 200)" : ""}`));
+  if (!ids.length) { box.append(el("div", { className: "muted", textContent: "Aucun." })); return box; }
+  box.append(el("div", { className: "mono muted", style: "max-height:160px;overflow:auto", textContent: ids.join("   ") }));
+  return box;
+}
+
+function renderDrift(root, d) {
+  root.innerHTML = "";
+  // Statistiques
+  if (d.stops_stats) root.append(statTable("Arrêts", ["", "Lignes", "Uniques (normalisés)"], [
+    ["Source A", num(d.stops_stats.a_rows), num(d.stops_stats.a_unique)],
+    ["Source B", num(d.stops_stats.b_rows), num(d.stops_stats.b_unique)]]));
+  if (d.calendar_stats) root.append(statTable("Calendriers", ["", "calendar.txt", "calendar_dates.txt"], [
+    ["Source A", num(d.calendar_stats.a_calendar), num(d.calendar_stats.a_calendar_dates)],
+    ["Source B", num(d.calendar_stats.b_calendar), num(d.calendar_stats.b_calendar_dates)]]));
+  if (d.shapes_stats) {
+    const sh = (s) => [num(s.unique_shapes), num(s.points_total), dec(s.points_mean), dec(s.points_median), dec(s.points_p95), num(s.points_max)];
+    root.append(statTable("Tracés (shapes)", ["", "Tracés", "Points", "Moy.", "Médiane", "p95", "Max"], [
+      ["Source A", ...sh(d.shapes_stats.a)], ["Source B", ...sh(d.shapes_stats.b)]]));
+  }
+  // Deltas par ligne
+  if (d.trips_by_route_delta) root.append(deltaTable("Trajets par ligne", d.trips_by_route_delta, ["a_trips", "b_trips"]));
+  if (d.stop_times_by_route_delta) root.append(deltaTable("Horaires (stop_times) par ligne", d.stop_times_by_route_delta, ["a_rows", "b_rows"]));
+  // Arrêts manquants
+  if (d.stops_missing_b_not_in_a) root.append(missingList("Arrêts présents dans B mais pas A", d.stops_missing_b_not_in_a));
+  if (d.stops_missing_a_not_in_b) root.append(missingList("Arrêts présents dans A mais pas B", d.stops_missing_a_not_in_b));
+  // routes_field_diffs
+  if (d.routes_field_diffs) {
+    const rfd = d.routes_field_diffs;
+    const byStatus = {};
+    for (const r of rfd) byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+    const LBL = { ok: "identiques", field_diff: "champs modifiés", missing_in_a: "absentes de A", missing_in_b: "absentes de B" };
+    const box = el("div", { style: "margin:.8rem 0" });
+    box.append(el("div", { style: "font-weight:600;margin-bottom:.2rem" }, "Lignes (routes) — comparaison des champs"));
+    box.append(el("div", { className: "muted" }, Object.entries(byStatus).map(([s, n]) => `${LBL[s] || s} : ${n}`).join("  ·  ")));
+    const changed = rfd.filter((r) => r.status === "field_diff");
+    if (changed.length) {
+      const wrap = el("div", { style: "max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:6px;margin-top:.4rem" });
+      const t = el("table");
+      t.append(el("thead", {}, el("tr", {}, ["route_id", "nom court (A→B)", "nom long (A→B)", "type (A→B)"].map((h) => el("th", { textContent: h })))));
+      const b = el("tbody");
+      const ch = (a, bb) => a === bb ? el("span", { className: "muted", textContent: a ?? "" }) : el("span", {}, [el("b", { textContent: (a ?? "∅") + " → " + (bb ?? "∅") })]);
+      for (const r of changed.slice(0, 300)) b.append(el("tr", {}, [
+        el("td", { className: "mono", textContent: r.route_id }),
+        el("td", {}, ch(r.a_short, r.b_short)), el("td", {}, ch(r.a_long, r.b_long)), el("td", {}, ch(r.a_type, r.b_type))]));
+      t.append(b); wrap.append(t); box.append(wrap);
+    }
+    root.append(box);
+  }
 }
 
 // ---------- détail par table ----------

@@ -62,7 +62,7 @@ const KEY_META = {
   "stops.txt": "stop_id", "calendar.txt": "service_id", "companies.txt": "company_id",
 };
 
-function uniqueNames(headers) {
+export function uniqueNames(headers) {
   const seen = new Map(); const out = [];
   headers.forEach((h, i) => {
     let name = h || `column${i}`;
@@ -74,7 +74,7 @@ function uniqueNames(headers) {
 }
 
 // Première ligne d'un CSV (en-têtes), BOM et espaces retirés ; [] si vide.
-function readHeader(bytes) {
+export function readHeader(bytes) {
   if (!bytes || bytes.length === 0) return [];
   let text = new TextDecoder("utf-8").decode(bytes);
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
@@ -94,7 +94,7 @@ function readHeader(bytes) {
   return cols.length === 1 && cols[0] === "" ? [] : cols;
 }
 
-const readCsvSQL = (reg, cols) =>
+export const readCsvSQL = (reg, cols) =>
   `read_csv(${lit(reg)}, header=true, auto_detect=false, columns={${cols.map((c) => `${lit(c)}: 'VARCHAR'`).join(", ")}}, ` +
   `delim=',', quote='"', escape='"', null_padding=true, ignore_errors=true, parallel=false)`;
 

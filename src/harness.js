@@ -1,6 +1,7 @@
 // Exposé à Playwright pour la validation contre l'oracle Python et la vérif croisée openFile.
 import JSZip from "jszip";
 import { initDuckDB, diffAll, diffFile, openFile } from "./engine.js";
+import { computeDrift } from "./drift.js";
 
 let _db = null;
 async function db() { if (!_db) _db = await initDuckDB(); return _db; }
@@ -50,6 +51,10 @@ window.gtfs = {
   async run(aUrl, bUrl, profile = "universal") {
     const byFile = await diffAll(await db(), await entries(aUrl), await entries(bUrl), profile);
     return Object.values(byFile).flat();
+  },
+  // analyses de dérive (validation contre compute.py)
+  async drift(aUrl, bUrl, profile = "universal") {
+    return await computeDrift(await db(), await entries(aUrl), await entries(bUrl), profile);
   },
   // key_diff d'un fichier (validation contre compute.key_diffs)
   async kd(aUrl, bUrl, file, profile = "universal") {
