@@ -403,14 +403,88 @@ export async function openFile(db, aEntries, bEntries, file, profileName = "univ
   counts.columns_removed = head.filter((m) => m.target === "column" && m.action === "delete").length;
   counts.validation_cols = validation.length;
 
+  // ---- table unifiée `messages` (colonnes de l'onglet Écarts : Type|Niveau|Source|Clé|Valeur A|Valeur B|Note) ----
+  const sortedA = [...colsA].sort(), sortedB = [...colsB].sort();
+  const cleKeyed = pk ? `concat_ws(chr(10), ${pk.map((k, i) => `${lit(k + " = ")} || COALESCE("k${i}",'')`).join(", ")})` : "NULL";
+  const rowStr = (cols, pfx) => cols.length
+    ? `concat_ws(chr(10), ${cols.map((c, i) => `${lit(c + " = ")} || COALESCE("${pfx}${i}",'')`).join(", ")})` : "NULL";
+  const changedStr = (side) => colsB.length
+    ? `concat_ws(chr(10), ${colsB.map((c, i) => `CASE WHEN "a${i}" <> "b${i}" THEN ${lit(c + " = ")} || "${side}${i}" END`).join(", ")})` : "NULL";
+  await exec(con, `CREATE TEMP TABLE messages (grp INT, sub BIGINT, type VARCHAR, niveau VARCHAR, source VARCHAR, cle VARCHAR, valeur_a VARCHAR, valeur_b VARCHAR, note VARCHAR)`);
+  const ins = async (sql) => exec(con, `INSERT INTO messages ${sql}`);
+  if (matTables.includes("m_delete"))
+    await ins(`SELECT 2, __n, 'Suppression','Ligne',NULL, ${pk ? cleKeyed : rowStr(sortedA, "d")}, NULL, NULL, NULL FROM m_delete`);
+  if (matTables.includes("m_add"))
+    await ins(`SELECT 3, __n, 'Ajout','Ligne',NULL, ${pk ? cleKeyed : rowStr(sortedB, "d")}, NULL, ${pk ? rowStr(colsB, "v") : "NULL"}, NULL FROM m_add`);
+  if (matTables.includes("m_update"))
+    await ins(`SELECT 4, __n, 'Modification','Ligne',NULL, ${cleKeyed}, ${changedStr("a")}, ${changedStr("b")}, NULL FROM m_update`);
+  for (const [t, feed] of [["m_duplicate_a", "a"], ["m_duplicate_b", "b"]])
+    if (matTables.includes(t))
+      await ins(`SELECT 5, __n, 'Clé dupliquée','Ligne',${lit(feed)}, ${cleKeyed}, NULL, NULL, ${lit(DUPLICATE_NOTE)} FROM ${t}`);
+  // structure (fichier/colonnes) + validation colonnes : insérés depuis JS
+  const vrows = [];
+  let sub = 0;
+  for (const m of head) if (m.target === "file")
+    vrows.push([0, sub++, m.action === "add" ? "Ajout" : "Suppression", "Fichier", null, "filename = " + m.identifier.filename, null, null, null]);
+  sub = 0;
+  for (const m of head) if (m.target === "column")
+    vrows.push([1, sub++, m.action === "add" ? "Ajout" : "Suppression", "Colonne", null, "column = " + m.identifier.column, null, null, null]);
+  sub = 0;
+  for (const m of validation)
+    vrows.push(m.action === "empty_or_unreadable_file"
+      ? [6, sub++, "Fichier vide", "Fichier", m.feed, "filename = " + m.identifier.filename, null, null, m.note]
+      : [6, sub++, "Colonne manquante", "Colonne", m.feed, "column = " + m.identifier.column, null, null, m.note]);
+  if (vrows.length) {
+    const esc = (v) => (v == null ? "NULL" : lit(v));
+    await exec(con, `INSERT INTO messages VALUES ${vrows.map((r) => `(${r[0]},${r[1]},${esc(r[2])},${esc(r[3])},${esc(r[4])},${esc(r[5])},${esc(r[6])},${esc(r[7])},${esc(r[8])})`).join(", ")}`);
+  }
+  matTables.push("messages");
+  counts.total = Number((await rows(con, `SELECT COUNT(*) AS n FROM messages`))[0].n);
+  counts.byType = {};
+  for (const r of await rows(con, `SELECT type, COUNT(*) AS n FROM messages GROUP BY type`)) counts.byType[r.type] = Number(r.n);
+
+  // ---- données brutes (onglet Données), matérialisées à la demande par source ----
+  const dataLoaded = {};
+  const ensureData = async (side) => {
+    if (dataLoaded[side]) return;
+    const cols = side === "a" ? colsA : colsB;
+    await exec(con, `CREATE TEMP TABLE data_${side} AS SELECT * FROM ${readCsvSQL(`${side}__${safe}.csv`, cols)}`);
+    matTables.push(`data_${side}`); dataLoaded[side] = true;
+  };
+  const likeWhere = (cols, q, col, val) => {
+    const parts = [];
+    if (q) parts.push(`(${cols.map((c) => `"${c}" ILIKE ${lit("%" + q + "%")}`).join(" OR ")})`);
+    if (col && val) parts.push(`"${col}" ILIKE ${lit("%" + val + "%")}`);
+    return parts.length ? "WHERE " + parts.join(" AND ") : "";
+  };
+
   return {
     file, inA, inB, pk, colsA, colsB, head, validation, counts, keyDiff,
-    // page d'une catégorie ligne à ligne
     async page(action, offset = 0, limit = 50) {
       const d = defs[action];
       if (!d) return [];
       const rs = await rows(con, `SELECT * FROM m_${action} WHERE __n > ${offset} AND __n <= ${offset + limit} ORDER BY __n`);
       return rs.map(d.make);
+    },
+    // onglet Écarts : page filtrée de la table unifiée (types = libellés, source = a/b)
+    async messagesPage({ types = null, source = null } = {}, offset = 0, limit = 100) {
+      const w = [];
+      if (types && types.length) w.push(`type IN (${types.map(lit).join(", ")})`);
+      if (source) w.push(`source = ${lit(source)}`);
+      const where = w.length ? "WHERE " + w.join(" AND ") : "";
+      const total = Number((await rows(con, `SELECT COUNT(*) AS n FROM messages ${where}`))[0].n);
+      const rs = await rows(con, `SELECT type, niveau, source, cle, valeur_a, valeur_b, note FROM messages ${where} ORDER BY grp, sub LIMIT ${limit} OFFSET ${offset}`);
+      return { total, rows: rs };
+    },
+    // onglet Données : page brute d'une source avec recherche/colonne/tri
+    async dataPage(side, { q = null, col = null, val = null, sortCol = null, dir = "asc" } = {}, offset = 0, limit = 100) {
+      await ensureData(side);
+      const cols = side === "a" ? colsA : colsB;
+      const where = likeWhere(cols, q, col, val);
+      const order = sortCol ? `ORDER BY "${sortCol}" ${dir === "desc" ? "DESC" : "ASC"}` : "";
+      const total = Number((await rows(con, `SELECT COUNT(*) AS n FROM data_${side} ${where}`))[0].n);
+      const rs = await rows(con, `SELECT * FROM data_${side} ${where} ${order} LIMIT ${limit} OFFSET ${offset}`);
+      return { total, cols, rows: rs };
     },
     async close() {
       for (const t of [...matTables, "ta", "tb", "ta_d", "tb_d"]) await exec(con, `DROP TABLE IF EXISTS ${t}`);

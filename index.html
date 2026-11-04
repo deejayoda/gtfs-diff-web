@@ -1,103 +1,133 @@
 <!doctype html>
 <html lang="fr"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Comparaison de flux GTFS</title>
+<title>GTFS Drift Dashboard</title>
 <style>
   :root{
-    --bg:#ffffff;--fg:#1a1d21;--muted:#5b6670;--line:#e3e7eb;--card:#f7f9fb;
-    --accent:#1f6feb;--accent-fg:#fff;
-    --crit:#d1242f;--imp:#e8590c;--mod:#b78103;--ok:#1a7f37;
-    --crit-bg:#ffebe9;--imp-bg:#fff1e6;--mod-bg:#fff8e1;--ok-bg:#e9f6ec;
+    --bg:#eef1f5; --panel:#ffffff; --fg:#1f2733; --muted:#64707e; --line:#e4e8ee; --line2:#eef2f7;
+    --blue:#2563eb; --blue-d:#1d4ed8; --green:#16a34a; --red:#dc2626; --orange:#ea580c; --amber:#b45309; --purple:#7c3aed;
+    --crit-bg:#fdecea; --crit-fg:#b91c1c; --crit-dot:#dc2626;
+    --nota-bg:#fef7e0; --nota-fg:#92610a; --nota-dot:#f59e0b;
+    --ok-dot:#16a34a;
   }
-  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-    --bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#2a2f36;--card:#161b22;
-    --crit-bg:#3a1416;--imp-bg:#3a2410;--mod-bg:#332808;--ok-bg:#122117;
-  }}
   *{box-sizing:border-box}
-  body{font:14px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;color:var(--fg);background:var(--bg);margin:0}
-  .wrap{max-width:1100px;margin:0 auto;padding:1.5rem 1rem 4rem}
-  h1{font-size:1.4rem;margin:.2rem 0 .3rem}
-  h2{font-size:1.05rem;margin:1.5rem 0 .6rem}
-  .sub{color:var(--muted);margin:.2rem 0 1rem}
-  .sources{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-  @media(max-width:680px){.sources{grid-template-columns:1fr}}
-  .src{border:1px solid var(--line);border-radius:10px;padding:1rem;background:var(--card)}
-  .src h3{margin:0 0 .5rem;font-size:.95rem}
-  .drop{border:1.5px dashed var(--line);border-radius:8px;padding:1rem;text-align:center;cursor:pointer;background:var(--bg)}
-  .drop.over{border-color:var(--accent);background:var(--card)}
+  body{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--fg);background:var(--bg);margin:0}
+  .wrap{max-width:1280px;margin:0 auto;padding:16px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 3px rgba(16,24,40,.06);padding:22px 26px;margin-bottom:18px}
+  h1{font-size:1.5rem;margin:0 0 .5rem}
+  h2{font-size:1.15rem;margin:.1rem 0 .8rem}
+  h3{font-size:1rem;margin:0 0 .6rem}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .muted{color:var(--muted)}
+  a.link{color:var(--blue);text-decoration:underline;cursor:pointer}
+  /* header */
+  .head{display:flex;align-items:center;gap:16px}
+  .brand{font-size:1.5rem;font-weight:800;letter-spacing:-.5px}
+  .brand b{color:var(--blue)} .brand i{color:var(--orange);font-style:normal}
+  .head .sub{color:var(--muted);font-size:.9rem}
+  .pill-tag{margin-left:auto;background:var(--blue);color:#fff;border-radius:999px;padding:.5rem 1rem;font-weight:600;font-size:.85rem}
+  /* form */
+  label{display:block;font-size:.8rem;color:var(--muted);font-weight:600;margin:.6rem 0 .25rem}
+  input[type=text],select{width:100%;padding:.55rem .7rem;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--fg);font-size:.92rem}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .src{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:#fbfcfe}
+  .drop{border:1.5px dashed #c6d0dc;border-radius:10px;padding:1.3rem;text-align:center;cursor:pointer;color:var(--muted);background:#fff}
+  .drop.over{border-color:var(--blue);background:#f2f6ff;color:var(--blue)}
   .drop input{display:none}
-  .fname{margin-top:.5rem;font-size:.85rem;color:var(--muted);word-break:break-all}
-  label{display:block;font-size:.8rem;color:var(--muted);margin:.5rem 0 .2rem}
-  input[type=text],select{width:100%;padding:.45rem .5rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font-size:.9rem}
-  .controls{display:flex;gap:1rem;align-items:flex-end;margin-top:1rem;flex-wrap:wrap}
-  .controls>div{flex:1;min-width:220px}
-  button{padding:.55rem 1.1rem;border:0;border-radius:7px;background:var(--accent);color:var(--accent-fg);font-size:.95rem;cursor:pointer}
-  button.sec{background:transparent;color:var(--accent);border:1px solid var(--line)}
-  button:disabled{opacity:.5;cursor:default}
-  .status{margin:1rem 0;min-height:1.4em}
+  .fname{margin-top:.5rem;font-size:.82rem;color:var(--muted);word-break:break-all}
+  .btn{padding:.6rem 1.2rem;border:0;border-radius:9px;background:var(--blue);color:#fff;font-size:.95rem;font-weight:600;cursor:pointer}
+  .btn:hover{background:var(--blue-d)} .btn:disabled{opacity:.55;cursor:default}
+  .btn-sec{background:#fff;color:var(--blue);border:1px solid #c7d6f5;border-radius:9px;padding:.5rem .9rem;font-weight:600;cursor:pointer;font-size:.88rem}
+  .btn-sec:hover{background:#f2f6ff} .btn-sec:disabled{opacity:.5;cursor:default}
+  .statusbox{margin-top:14px;padding:.8rem 1rem;background:#eff6ff;border:1px solid #d6e4ff;border-radius:10px;color:var(--blue-d);font-weight:600}
   .hidden{display:none}
-  .card{border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem;background:var(--card);margin:.8rem 0}
-  .badge{display:inline-block;padding:.12rem .55rem;border-radius:999px;font-size:.78rem;font-weight:600}
-  .b-critical{background:var(--crit-bg);color:var(--crit)} .b-important{background:var(--imp-bg);color:var(--imp)}
-  .b-moderate{background:var(--mod-bg);color:var(--mod)} .b-ok{background:var(--ok-bg);color:var(--ok)}
+  /* badges / severity */
+  .badge{display:inline-flex;align-items:center;gap:.35rem;padding:.2rem .6rem;border-radius:999px;font-size:.78rem;font-weight:700}
+  .dot{width:.6rem;height:.6rem;border-radius:50%;display:inline-block}
+  .b-critical{background:var(--crit-bg);color:var(--crit-fg)} .d-critical{background:var(--crit-dot)}
+  .b-important{background:#fff0e6;color:#c2410c} .d-important{background:var(--orange)}
+  .b-moderate{background:var(--nota-bg);color:var(--nota-fg)} .d-moderate{background:var(--nota-dot)}
+  .b-ok{background:#e9f7ef;color:#15803d} .d-ok{background:var(--ok-dot)}
+  /* stat cards */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:14px 0}
+  @media(max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}}
+  .stat{border:1px solid var(--line);border-radius:12px;padding:16px;text-align:center;background:#fff}
+  .stat .n{font-size:1.9rem;font-weight:800;line-height:1}
+  .stat .l{color:var(--muted);font-size:.82rem;margin-top:.4rem}
+  .stat .f{font-size:.8rem;margin-top:.3rem;font-weight:600}
+  .n-blue{color:var(--blue)} .n-green{color:var(--green)} .n-red{color:var(--red)} .n-orange{color:var(--orange)}
+  /* volumetric rows */
+  .vol{margin:.3rem 0}
+  .vol .row{padding:.35rem .7rem;border-radius:7px;margin:.25rem 0;font-family:ui-monospace,monospace;font-size:.85rem}
+  .vol .critical{background:var(--crit-bg);color:var(--crit-fg)} .vol .important{background:#fff0e6;color:#c2410c}
+  .vol .moderate{background:var(--nota-bg);color:var(--nota-fg)}
+  /* tables */
   table{border-collapse:collapse;width:100%;font-size:.88rem}
-  th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
-  th{color:var(--muted);font-weight:600}
-  tr.click{cursor:pointer} tr.click:hover{background:var(--bg)}
-  .pills{display:flex;gap:.4rem;flex-wrap:wrap;margin:.6rem 0}
-  .pill{padding:.25rem .6rem;border:1px solid var(--line);border-radius:999px;background:var(--bg);cursor:pointer;font-size:.82rem}
-  .pill.active{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
-  .tabs{display:flex;gap:.3rem;border-bottom:1px solid var(--line);margin:.5rem 0 .8rem}
-  .tab{padding:.45rem .8rem;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted)}
-  .tab.active{color:var(--fg);border-color:var(--accent)}
-  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82rem}
-  .chg{color:var(--muted)} .chg b{color:var(--fg);font-weight:600}
-  .pager{display:flex;gap:.6rem;align-items:center;margin:.7rem 0}
-  .muted{color:var(--muted)} .num{font-variant-numeric:tabular-nums}
-  .delta-pos{color:var(--crit)} .delta-neg{color:var(--accent)}
+  th,td{text-align:left;padding:.5rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{background:var(--line2);color:#46535f;font-weight:700;position:sticky;top:0}
+  tr.critical{background:var(--crit-bg)} tr.important{background:#fff0e6} tr.moderate{background:var(--nota-bg)}
+  tr.click{cursor:pointer}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .delta-pos{color:var(--red)} .delta-neg{color:var(--blue)}
+  .scroll{max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:10px}
+  /* detail */
+  .metacard{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:#fbfcfe;margin:.6rem 0}
+  .chip{background:#eef2f7;color:#46535f;border-radius:999px;padding:.1rem .55rem;font-size:.8rem;font-weight:600;margin-left:.4rem}
+  .kv{margin-top:.4rem} .kv b{font-weight:700}
+  .interp{margin-top:.7rem;background:#fff8ec;border-left:4px solid var(--nota-dot);border-radius:6px;padding:.6rem .9rem}
+  .tabs{display:flex;gap:0;border-bottom:1px solid var(--line);margin:1rem 0 0}
+  .tab{flex:1;text-align:center;padding:.7rem;cursor:pointer;color:var(--muted);font-weight:600;border-bottom:3px solid transparent}
+  .tab.active{color:var(--fg);border-color:var(--purple)}
+  .toolbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin:.9rem 0}
+  .toolbar .fld{flex:1;min-width:150px} .toolbar .fld.sm{flex:0 0 auto}
+  .filterbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#f6f8fb;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:.6rem 0}
+  .pager{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:.7rem 0}
+  .pager input{width:70px;text-align:center}
+  .pre{white-space:pre-line}
 </style></head>
 <body><div class="wrap">
-  <h1>Comparaison de flux GTFS</h1>
-  <p class="sub">Tout se passe dans votre navigateur, hors ligne — aucun fichier n'est envoyé. Moteur validé contre le moteur Python.</p>
 
-  <div class="sources">
-    <div class="src">
-      <h3>Source A</h3>
-      <div class="drop" id="dropA"><span id="promptA">Glisser-déposer ou cliquer pour choisir un ZIP</span>
-        <input type="file" id="fileA" accept=".zip"></div>
-      <div class="fname" id="fnameA"></div>
-      <label for="labelA">Libellé (facultatif)</label>
-      <input type="text" id="labelA" placeholder="Par défaut : nom du fichier">
-    </div>
-    <div class="src">
-      <h3>Source B</h3>
-      <div class="drop" id="dropB"><span id="promptB">Glisser-déposer ou cliquer pour choisir un ZIP</span>
-        <input type="file" id="fileB" accept=".zip"></div>
-      <div class="fname" id="fnameB"></div>
-      <label for="labelB">Libellé (facultatif)</label>
-      <input type="text" id="labelB" placeholder="Par défaut : nom du fichier">
-    </div>
-  </div>
-
-  <div class="controls">
+  <div class="panel head">
+    <div class="brand"><b>ZOU</b><i>!</i></div>
     <div>
-      <label for="profile">Profil de comparaison</label>
-      <select id="profile">
-        <option value="universal">🌐 Universel (standard GTFS, aucune normalisation)</option>
-        <option value="zou_scolaire">🚌 ZOU ! scolaire (normalisation Pégase/SIBR)</option>
-      </select>
+      <div style="font-size:1.25rem;font-weight:800">GTFS Drift Dashboard</div>
+      <div class="sub">Comparaison de flux GTFS et analyse des écarts</div>
     </div>
-    <div style="flex:0">
-      <button id="run">Comparer</button>
-    </div>
+    <span class="pill-tag">Région Sud / ZOU</span>
   </div>
 
-  <div class="status" id="status"></div>
-
-  <div id="results" class="hidden">
-    <div id="overview"></div>
-    <div id="detail"></div>
+  <div class="panel">
+    <h1>Comparer deux flux GTFS</h1>
+    <div class="grid2">
+      <div class="src">
+        <h3>Source A</h3>
+        <label for="labelA">Libellé</label>
+        <input type="text" id="labelA" placeholder="Par défaut : nom du fichier">
+        <label>Fichier ZIP</label>
+        <div class="drop" id="dropA"><span id="promptA">Glisser-déposer ou choisir un fichier</span><input type="file" id="fileA" accept=".zip"></div>
+        <div class="fname" id="fnameA"></div>
+      </div>
+      <div class="src">
+        <h3>Source B</h3>
+        <label for="labelB">Libellé</label>
+        <input type="text" id="labelB" placeholder="Par défaut : nom du fichier">
+        <label>Fichier ZIP</label>
+        <div class="drop" id="dropB"><span id="promptB">Glisser-déposer ou choisir un fichier</span><input type="file" id="fileB" accept=".zip"></div>
+        <div class="fname" id="fnameB"></div>
+      </div>
+    </div>
+    <label for="profile">Profil de comparaison</label>
+    <select id="profile" style="max-width:380px">
+      <option value="universal">🌐 Universel (standard GTFS)</option>
+      <option value="zou_scolaire">🚌 ZOU ! scolaire (normalisation Pégase/SIBR)</option>
+    </select>
+    <div style="margin-top:16px"><button class="btn" id="run">Lancer la comparaison</button></div>
+    <div id="status"></div>
   </div>
+
+  <div id="overview" class="panel hidden"></div>
+  <div id="detailPanel" class="panel hidden"></div>
 </div>
 <script type="module" src="./dist/app.bundle.js"></script>
 </body></html>
