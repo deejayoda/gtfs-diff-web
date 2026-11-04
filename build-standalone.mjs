@@ -18,9 +18,11 @@ const A = "node_modules/@duckdb/duckdb-wasm/dist/";
 const wasmB64 = readFileSync(A + "duckdb-eh.wasm").toString("base64");
 const workerB64 = readFileSync(A + "duckdb-browser-eh.worker.js").toString("base64");
 
-// 3) markup + styles repris de index.html (sans le <script module>)
+// 3) markup + styles repris de index.html (sans le <script module>), logo inliné
+const logoB64 = readFileSync("zou-logo.jpg").toString("base64");
 const page = readFileSync("index.html", "utf8")
-  .replace(/<script type="module"[^>]*><\/script>\s*/, "");
+  .replace(/<script type="module"[^>]*><\/script>\s*/, "")
+  .replace("./zou-logo.jpg", `data:image/jpeg;base64,${logoB64}`);
 
 const boot = `
 <script>
