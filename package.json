@@ -1,0 +1,20 @@
+{
+  "name": "gtfs-diff-web",
+  "version": "0.1.0",
+  "description": "Comparaison de flux GTFS, entièrement dans le navigateur (preuve de concept)",
+  "main": "index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "serve": "node server.mjs",
+    "start": "node build.mjs && node server.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.29.0",
+    "esbuild": "^0.24.2",
+    "jszip": "^3.10.1"
+  },
+  "type": "module"
+}
