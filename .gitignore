@@ -2,3 +2,4 @@ node_modules/
 dist/
 assets/duckdb/
 *.log
+fixtures/

@@ -2,10 +2,10 @@ import { build } from "esbuild";
 import { mkdirSync, copyFileSync } from "node:fs";
 
 await build({
-  entryPoints: ["src/app.js"],
+  entryPoints: { "app.bundle": "src/app.js", "harness.bundle": "src/harness.js" },
   bundle: true,
   format: "esm",
-  outfile: "dist/app.bundle.js",
+  outdir: "dist",
   logLevel: "info",
 });
 

@@ -1,4 +1,24 @@
 <!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><title>PoC GTFS diff (navigateur)</title></head>
-<body><h1>PoC — diff GTFS dans le navigateur</h1><pre id="result">chargement…</pre>
-<script type="module" src="./dist/app.bundle.js"></script></body></html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTFS diff (navigateur) — brut</title>
+<style>
+  body{font:14px/1.5 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#1a1a1a}
+  h1{font-size:1.3rem} label{display:inline-block;margin:.3rem 1rem .3rem 0}
+  .row{margin:.5rem 0} button{padding:.5rem 1rem;font-size:1rem;cursor:pointer}
+  select,input{font-size:1rem} pre{background:#f6f8fa;padding:1rem;border-radius:6px;overflow:auto;max-height:60vh;white-space:pre-wrap}
+  .note{color:#555;font-size:.9rem}
+</style></head>
+<body>
+<h1>Comparaison de flux GTFS — sortie brute</h1>
+<p class="note">Tout se passe dans le navigateur, hors ligne. Moteur validé contre le moteur Python (300 flux aléatoires). Étapes 1+2 : moteur complet, affichage brut — l'interface viendra ensuite.</p>
+<div class="row"><label>Source A (ZIP) <input type="file" id="a" accept=".zip"></label></div>
+<div class="row"><label>Source B (ZIP) <input type="file" id="b" accept=".zip"></label></div>
+<div class="row"><label>Profil
+  <select id="profile">
+    <option value="universal">universal (brut, aucune normalisation)</option>
+    <option value="zou_scolaire">zou_scolaire (normalisation Pégase/ZOU)</option>
+  </select></label>
+  <button id="run">Comparer</button></div>
+<pre id="out">Prêt.</pre>
+<script type="module" src="./dist/app.bundle.js"></script>
+</body></html>

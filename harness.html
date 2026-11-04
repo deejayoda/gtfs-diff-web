@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>harness</title></head>
+<body><pre id="s">loading</pre>
+<script type="module">
+import "./dist/harness.bundle.js";
+window.gtfs ? (document.getElementById("s").textContent = "ready") : null;
+</script></body></html>
