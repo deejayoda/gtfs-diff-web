@@ -20,6 +20,7 @@ export const GTFS_PRIMARY_KEYS = {
   "fare_attributes.txt": ["fare_id"],
   "areas.txt": ["area_id"],
   "networks.txt": ["network_id"],
+  "companies.txt": ["company_id"], // extension Pégase (liste des compagnies)
 };
 
 export const GTFS_REQUIRED_COLUMNS = {

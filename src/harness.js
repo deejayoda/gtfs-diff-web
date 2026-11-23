@@ -52,6 +52,13 @@ window.gtfs = {
     const byFile = await diffAll(await db(), await entries(aUrl), await entries(bUrl), profile);
     return Object.values(byFile).flat();
   },
+  // clé retenue + compteurs d'un fichier
+  async info(aUrl, bUrl, file, profile = "universal") {
+    const h = await openFile(await db(), await entries(aUrl), await entries(bUrl), file, profile);
+    const r = { pk: h.pk, counts: h.counts };
+    await h.close();
+    return r;
+  },
   // analyses de dérive (validation contre compute.py)
   async drift(aUrl, bUrl, profile = "universal") {
     return await computeDrift(await db(), await entries(aUrl), await entries(bUrl), profile);
