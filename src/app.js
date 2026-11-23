@@ -16,6 +16,9 @@ const SEV = { critical: ["CRITIQUE", "critical"], important: ["IMPORTANT", "impo
 const sevBadge = (s) => el("span", { className: "badge b-" + SEV[s][1] }, [el("span", { className: "dot d-" + SEV[s][1] }), SEV[s][0]]);
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString("fr"));
 const dec = (v) => (v == null ? "—" : Number(v).toLocaleString("fr", { maximumFractionDigits: 1 }));
+// Couleur du sens de variation : rouge = B a plus de lignes que A, bleu = moins, rien si égal (0 %).
+const deltaCls = (a, b) => (b > a ? "delta-pos" : b < a ? "delta-neg" : "");
+const deltaClsN = (v) => (v > 0 ? "delta-pos" : v < 0 ? "delta-neg" : "");
 
 let db = null, entriesA = null, entriesB = null, labels = { a: "A", b: "B" };
 let handle = null, drift = null, ov = null;
@@ -107,7 +110,7 @@ function renderOverview(ov) {
     link.addEventListener("click", () => selectTable(r.file));
     const tr = el("tr", { className: r.severity !== "ok" ? r.severity : "" }, [
       el("td", {}, link), el("td", {}, sevBadge(r.severity)),
-      el("td", { className: "num " + (r.bRows >= r.aRows ? "delta-pos" : "delta-neg"), textContent: pct }),
+      el("td", { className: "num " + deltaCls(r.aRows, r.bRows), textContent: pct }),
       el("td", { className: "num", textContent: r.colsDelta ? (r.colsDelta > 0 ? "+" : "") + r.colsDelta : "—" }),
     ]);
     b.append(tr);
@@ -175,7 +178,7 @@ function renderDetail(body, h) {
   const t = ov.tables.find((x) => x.file === h.file) || {};
   card.append(el("div", { className: "kv muted" }, [
     `${labels.a} : ${num(t.aRows)} lignes   ${labels.b} : ${num(t.bRows)} lignes   `,
-    t.inA && t.inB ? el("b", { className: t.bRows >= t.aRows ? "delta-pos" : "delta-neg", textContent: (t.pctRowsChange > 0 ? "+" : "") + t.pctRowsChange + " %" }) : el("b", { textContent: t.inA ? "fichier absent de B" : "fichier ajouté" })]));
+    t.inA && t.inB ? el("b", { className: deltaCls(t.aRows, t.bRows), textContent: (t.pctRowsChange > 0 ? "+" : "") + t.pctRowsChange + " %" }) : el("b", { textContent: t.inA ? "fichier absent de B" : "fichier ajouté" })]));
   if (h.keyDiff) {
     const k = h.keyDiff;
     const line = [el("b", { textContent: "Identifiants : " }), `${num(k.common)} communs · ${num(k.added)} ajoutés (B) · ${num(k.removed)} supprimés (A)`];
@@ -341,7 +344,7 @@ function renderGrid(root, arr, cols) {
   const t = el("table"); t.append(el("thead", {}, el("tr", {}, cols.map((c) => el("th", { textContent: c })))));
   const b = el("tbody");
   for (const r of arr.slice(0, 1000)) b.append(el("tr", {}, cols.map((c) => {
-    let v = r[c]; if (c === "delta" && typeof v === "number") return el("td", { className: "num " + (v >= 0 ? "delta-pos" : "delta-neg"), textContent: (v > 0 ? "+" : "") + num(v) });
+    let v = r[c]; if (c === "delta" && typeof v === "number") return el("td", { className: "num " + deltaClsN(v), textContent: (v > 0 ? "+" : "") + num(v) });
     return el("td", { className: typeof v === "number" ? "num" : "mono", textContent: v == null ? "" : String(v) });
   })));
   t.append(b); root.append(el("div", { className: "scroll" }, t));
