@@ -1,6 +1,6 @@
 {
   "name": "gtfs-diff-web",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "Comparaison de flux GTFS, entièrement dans le navigateur (hors ligne)",
   "main": "index.js",
   "scripts": {

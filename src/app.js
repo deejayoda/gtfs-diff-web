@@ -395,3 +395,4 @@ function download(text, name) {
 }
 
 $("run").addEventListener("click", run);
+$("appVersion").textContent = "· v" + __APP_VERSION__;

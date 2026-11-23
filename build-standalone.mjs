@@ -1,6 +1,8 @@
 // Génère un HTML tout-en-un (gtfs-diff.html) : app + worker + wasm DuckDB inlinés,
 // pour un usage par double-clic (file://), sans serveur ni fichier externe.
 import { build } from "esbuild";
+import { readFileSync as _rf } from "node:fs";
+const VERSION = JSON.parse(_rf("package.json", "utf8")).version;
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 
 const DST = "dist-standalone/";
@@ -10,6 +12,7 @@ mkdirSync(DST, { recursive: true });
 const res = await build({
   entryPoints: ["src/app.js"],
   bundle: true, format: "iife", write: false, logLevel: "info",
+  define: { __APP_VERSION__: JSON.stringify(VERSION) },
 });
 const appCode = res.outputFiles[0].text;
 
